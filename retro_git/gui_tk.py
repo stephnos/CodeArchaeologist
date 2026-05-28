@@ -103,7 +103,7 @@ def launch_tk_gui() -> None:
     min_entry.insert(0, "3")
     min_entry.pack(side=tk.LEFT)
     max_entry = ttk.Entry(commits_row, width=6)
-    max_entry.insert(0, "50")
+    max_entry.insert(0, "20")
     max_entry.pack(side=tk.LEFT)
 
     dry_run_var = tk.BooleanVar(value=False)

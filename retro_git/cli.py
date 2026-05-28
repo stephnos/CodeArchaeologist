@@ -134,7 +134,7 @@ def generate(
         help="LLM provider (ollama=free local default)",
     ),
     min_commits: int = typer.Option(3, "--min-commits", help="Minimum commits in plan"),
-    max_commits: int = typer.Option(50, "--max-commits", help="Maximum commits in plan"),
+    max_commits: int = typer.Option(20, "--max-commits", help="Maximum commits in plan"),
     history_days: int = typer.Option(
         14,
         "--history-days",
@@ -407,7 +407,7 @@ def plan_export(
     output: Path = typer.Option(..., "--output", "-o"),
     provider: ProviderChoice = typer.Option(ProviderChoice.heuristic, "--provider", "-p"),
     min_commits: int = typer.Option(3, "--min-commits"),
-    max_commits: int = typer.Option(50, "--max-commits"),
+    max_commits: int = typer.Option(20, "--max-commits"),
 ) -> None:
     """Write plan JSON only (no git operations)."""
     manifest = build_manifest(source.resolve())

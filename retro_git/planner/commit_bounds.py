@@ -5,17 +5,31 @@ import re
 from retro_git.models import CommitStep, DevelopmentPlan
 
 
-_PART_SUFFIX_RE = re.compile(r"\s+\(part \d+(?:/\d+)?\)\s*$")
+_SPLIT_SUFFIX_RE = re.compile(
+    r"\s+\((?:part \d+(?:/\d+)?|follow-up(?: \d+)?|refine|finalize)\)\s*$"
+)
 
 
 def _base_message(message: str) -> str:
     msg = message.strip()
-    # Remove nested/generated part suffixes from previous split passes.
+    # Remove generated split suffixes from previous passes.
     while True:
-        stripped = _PART_SUFFIX_RE.sub("", msg).strip()
+        stripped = _SPLIT_SUFFIX_RE.sub("", msg).strip()
         if stripped == msg:
             return msg
         msg = stripped
+
+
+def _split_variant_message(base: str, index: int, total: int) -> str:
+    if total <= 1 or index <= 1:
+        return base
+    if index == 2:
+        return f"{base} (follow-up)"
+    if index == 3:
+        return f"{base} (refine)"
+    if index == 4:
+        return f"{base} (finalize)"
+    return f"{base} (follow-up {index - 1})"
 
 
 def enforce_commit_bounds(
@@ -61,13 +75,13 @@ def enforce_commit_bounds(
         base = _base_message(step.message)
         left = CommitStep(
             order=step.order,
-            message=f"{base} (part 1)",
+            message=base,
             intent=step.intent,
             files=left_files,
         )
         right = CommitStep(
             order=step.order + 1,
-            message=f"{base} (part 2)",
+            message=base,
             intent=step.intent,
             files=right_files,
         )
@@ -88,7 +102,7 @@ def enforce_commit_bounds(
         )
         steps[pair_idx : pair_idx + 2] = [merged]
 
-    # Give duplicate split messages stable, clean labels: "<base> (part i/n)".
+    # Give duplicate split messages stable, human-like follow-up labels.
     counts: dict[str, int] = {}
     for step in steps:
         base = _base_message(step.message)
@@ -100,10 +114,7 @@ def enforce_commit_bounds(
         base = _base_message(step.message)
         total = counts.get(base, 1)
         seen[base] = seen.get(base, 0) + 1
-        if total > 1:
-            message = f"{base} (part {seen[base]}/{total})"
-        else:
-            message = base
+        message = _split_variant_message(base, seen[base], total)
         renumbered.append(
             CommitStep(
                 order=idx,

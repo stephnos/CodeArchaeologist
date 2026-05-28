@@ -112,6 +112,11 @@ def set_repo_visibility(owner: str, repo: str, *, private: bool) -> None:
     console.print(f"[dim]Set {owner}/{repo} visibility: {visibility}[/dim]")
 
 
+def delete_github_repo(owner: str, repo: str) -> None:
+    _run_gh(["repo", "delete", f"{owner}/{repo}", "--yes"])
+    console.print(f"[dim]Deleted GitHub repo {owner}/{repo}[/dim]")
+
+
 def create_github_repo_and_push(
     target: Path,
     *,
@@ -165,13 +170,11 @@ def publish_replacing_old(
         owner = default_github_owner()
         existing_repo = repo_name
 
+    if github_repo_exists(owner, old_repo_name):
+        delete_github_repo(owner, old_repo_name)
+
     if existing_repo == repo_name and github_repo_exists(owner, repo_name):
         rename_github_repo(owner, repo_name, old_repo_name)
-        set_repo_visibility(owner, old_repo_name, private=True)
-    elif github_repo_exists(owner, old_repo_name):
-        console.print(
-            f"[yellow]GitHub repo {owner}/{old_repo_name} already exists; skipping rename.[/yellow]"
-        )
         set_repo_visibility(owner, old_repo_name, private=True)
 
     url = create_github_repo_and_push(

@@ -53,7 +53,7 @@ retro-git generate \
 |------|---------|-------------|
 | `--provider` | `ollama` | `ollama`, `groq`, or `heuristic` |
 | `--history-days` | `14` | Spread commit dates over N days |
-| `--min-commits` / `--max-commits` | `3` / `50` | Enforced commit count range |
+| `--min-commits` / `--max-commits` | `3` / `20` | Enforced commit count range |
 | `--dry-run` | off | Print plan only |
 | `--strict` | off | Fail instead of auto fix commit on mismatch |
 | `--force` | off | Clear target directory before run |

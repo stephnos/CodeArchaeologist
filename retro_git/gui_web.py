@@ -144,7 +144,7 @@ _HTML = """<!DOCTYPE html>
     <div class="row">
       <input name="min_commits" type="number" min="1" value="3" />
       <span>to</span>
-      <input name="max_commits" type="number" min="1" value="50" />
+      <input name="max_commits" type="number" min="1" value="20" />
     </div>
 
     <div class="checks">
@@ -416,7 +416,7 @@ def launch_web_gui() -> None:
             try:
                 history_days = max(1, int(fields.get("history_days", "14")))
                 min_commits = max(1, int(fields.get("min_commits", "3")))
-                max_commits = max(min_commits, int(fields.get("max_commits", "50")))
+                max_commits = max(min_commits, int(fields.get("max_commits", "20")))
                 provider = ProviderChoice(fields.get("provider", "ollama"))
             except (ValueError, KeyError) as exc:
                 self._send_json(400, {"message": str(exc)})

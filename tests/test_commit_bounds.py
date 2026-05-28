@@ -27,13 +27,10 @@ def test_enforce_commit_bounds_merges_to_max() -> None:
     assert len(adjusted.commits) <= 3
 
 
-def test_enforce_commit_bounds_labels_parts_cleanly() -> None:
-    # Force repeated splits of one commit and verify labels don't nest.
+def test_enforce_commit_bounds_labels_splits_naturally() -> None:
+    # Force repeated splits of one commit and verify labels stay human-like.
     plan = _plan_with_counts(12)
     adjusted = enforce_commit_bounds(plan, min_commits=6, max_commits=12, file_count=12)
     messages = [c.message for c in adjusted.commits]
-    assert all("(part 1) (part" not in m for m in messages)
-    assert all("(part 2) (part" not in m for m in messages)
-    part_msgs = [m for m in messages if "(part " in m]
-    assert part_msgs
-    assert all("/" in m for m in part_msgs)
+    assert all("(part " not in m for m in messages)
+    assert any("(follow-up)" in m for m in messages)
