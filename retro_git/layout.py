@@ -82,10 +82,13 @@ def apply_relocate(layout: ResolvedLayout) -> Path:
     backup = layout.backup_path
     backup.parent.mkdir(parents=True, exist_ok=True)
     if backup.exists():
-        raise typer.BadParameter(
-            f"Backup folder already exists: {backup}\n"
-            "Remove or rename it before running again."
-        )
+        idx = 2
+        while True:
+            candidate = backup.parent / f"{layout.scan_root.name}.old.{idx}"
+            if not candidate.exists():
+                backup = candidate
+                break
+            idx += 1
     shutil.move(str(layout.scan_root), str(backup))
     layout.target.mkdir(parents=True, exist_ok=True)
     return backup

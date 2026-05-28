@@ -257,10 +257,10 @@ def generate(
         raise typer.Exit()
 
     if layout.relocate_to_old:
-        console.print(
-            f"[dim]Moving {layout.scan_root.name} → {layout.backup_path.name}[/dim]"
-        )
         staging_source = apply_relocate(layout)
+        console.print(
+            f"[dim]Moved {layout.scan_root.name} → {Path(staging_source).name}[/dim]"
+        )
         backup_path = staging_source
         target = layout.target
 

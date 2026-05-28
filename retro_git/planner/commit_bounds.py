@@ -1,6 +1,21 @@
 from __future__ import annotations
 
+import re
+
 from retro_git.models import CommitStep, DevelopmentPlan
+
+
+_PART_SUFFIX_RE = re.compile(r"\s+\(part \d+(?:/\d+)?\)\s*$")
+
+
+def _base_message(message: str) -> str:
+    msg = message.strip()
+    # Remove nested/generated part suffixes from previous split passes.
+    while True:
+        stripped = _PART_SUFFIX_RE.sub("", msg).strip()
+        if stripped == msg:
+            return msg
+        msg = stripped
 
 
 def enforce_commit_bounds(
@@ -43,15 +58,16 @@ def enforce_commit_bounds(
         right_files = step.files[half:]
         if not left_files or not right_files:
             break
+        base = _base_message(step.message)
         left = CommitStep(
             order=step.order,
-            message=f"{step.message} (part 1)",
+            message=f"{base} (part 1)",
             intent=step.intent,
             files=left_files,
         )
         right = CommitStep(
             order=step.order + 1,
-            message=f"{step.message} (part 2)",
+            message=f"{base} (part 2)",
             intent=step.intent,
             files=right_files,
         )
@@ -72,12 +88,26 @@ def enforce_commit_bounds(
         )
         steps[pair_idx : pair_idx + 2] = [merged]
 
+    # Give duplicate split messages stable, clean labels: "<base> (part i/n)".
+    counts: dict[str, int] = {}
+    for step in steps:
+        base = _base_message(step.message)
+        counts[base] = counts.get(base, 0) + 1
+    seen: dict[str, int] = {}
+
     renumbered: list[CommitStep] = []
     for idx, step in enumerate(steps, start=1):
+        base = _base_message(step.message)
+        total = counts.get(base, 1)
+        seen[base] = seen.get(base, 0) + 1
+        if total > 1:
+            message = f"{base} (part {seen[base]}/{total})"
+        else:
+            message = base
         renumbered.append(
             CommitStep(
                 order=idx,
-                message=step.message,
+                message=message,
                 intent=step.intent,
                 files=list(step.files),
             )
