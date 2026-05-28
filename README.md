@@ -32,7 +32,7 @@ Run **`retro-git`** (no arguments) to open a **browser form** (local page on you
 | Field | Notes |
 |-------|--------|
 | **Source** | Finished project directory (required) |
-| **Target** | Leave blank to replace in place (backup in `software-engineering/.old/&lt;name&gt;.old`) |
+| **Target** | Leave blank to replace in place (backup in `software-engineering/old/&lt;name&gt;.old`) |
 | **Publish GitHub** | Renames `owner/repo` → `owner/repo.old` (**private**), creates fresh `owner/repo` (**public**), pushes |
 | **Undo last run** | Restores `<name>.old` locally; deletes new GitHub repo and renames `.old` back |
 | **Provider / history days / commits** | Same as CLI flags below |

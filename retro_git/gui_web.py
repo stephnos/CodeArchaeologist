@@ -128,7 +128,7 @@ _HTML = """<!DOCTYPE html>
 
     <label for="target">Target</label>
     <input id="target" name="target" type="text" placeholder="/path/to/output-repo (optional)" />
-    <p class="hint">Leave blank: project stays same name; backup goes to software-engineering/.old/&lt;name&gt;.old</p>
+    <p class="hint">Leave blank: project stays same name; backup goes to software-engineering/old/&lt;name&gt;.old</p>
 
     <label for="provider">Provider</label>
     <select id="provider" name="provider">
@@ -232,7 +232,7 @@ _HTML = """<!DOCTYPE html>
     }
 
     undoBtn.addEventListener('click', async () => {
-      if (!confirm('Undo the last run? This restores your .old backup and reverts GitHub if published.')) {
+      if (!confirm('Undo the last run? This restores your old/<name>.old backup and reverts GitHub if published.')) {
         return;
       }
       submitBtn.disabled = true;

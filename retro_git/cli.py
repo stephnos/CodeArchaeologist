@@ -125,7 +125,7 @@ def generate(
         None,
         "--target",
         "-t",
-        help="Output directory (blank = replace source; backup → .old/<name>.old)",
+        help="Output directory (blank = replace source; backup → old/<name>.old)",
     ),
     provider: ProviderChoice = typer.Option(
         ProviderChoice.ollama,

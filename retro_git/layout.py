@@ -25,15 +25,15 @@ class ResolvedLayout:
 
 def old_workspaces_root() -> Path:
     """
-    Folder where .old workspace backups are stored.
+    Folder where old workspace backups are stored.
 
-    Default: ~/projects/software-engineering/.old
+    Default: ~/projects/software-engineering/old
     Override with RETRO_GIT_OLD_ROOT.
     """
     env = os.getenv("RETRO_GIT_OLD_ROOT")
     if env:
         return Path(env).expanduser().resolve()
-    return Path.home() / "projects" / "software-engineering" / ".old"
+    return Path.home() / "projects" / "software-engineering" / "old"
 
 
 def resolve_layout(source_text: str, target_text: str) -> tuple[ResolvedLayout | None, str | None]:
@@ -51,7 +51,7 @@ def resolve_layout(source_text: str, target_text: str) -> tuple[ResolvedLayout |
         if target == scan_root:
             return None, (
                 "Target cannot be the same as source. Leave target blank to replace "
-                "the project in place (original moved to .old/<name>.old)."
+                "the project in place (original moved to old/<name>.old)."
             )
         return (
             ResolvedLayout(
@@ -64,7 +64,7 @@ def resolve_layout(source_text: str, target_text: str) -> tuple[ResolvedLayout |
             None,
         )
 
-    # Blank target: move project to .old/<name>.old, build new repo at original path.
+    # Blank target: move project to old/<name>.old, build new repo at original path.
     return (
         ResolvedLayout(
             scan_root=scan_root,

@@ -74,7 +74,7 @@ def launch_tk_gui() -> None:
     target_entry = _path_row(
         outer,
         "Target",
-        "Leave blank: backup goes to software-engineering/.old/<name>.old",
+        "Leave blank: backup goes to software-engineering/old/<name>.old",
         root,
     )
 
