@@ -27,6 +27,19 @@ ollama pull llama3.2
 
 ## Usage
 
+Run **`retro-git`** (no arguments) to open a **browser form** (local page on your Mac — avoids broken macOS Tk popups).
+
+| Field | Notes |
+|-------|--------|
+| **Source** | Finished project directory (required) |
+| **Target** | Leave blank to replace in place (backup in `software-engineering/.old/&lt;name&gt;.old`) |
+| **Publish GitHub** | Renames `owner/repo` → `owner/repo.old` (**private**), creates fresh `owner/repo` (**public**), pushes |
+| **Undo last run** | Restores `<name>.old` locally; deletes new GitHub repo and renames `.old` back |
+| **Provider / history days / commits** | Same as CLI flags below |
+| **Dry run / strict / include .env** | Checkboxes |
+
+CLI (optional):
+
 ```bash
 retro-git generate \
   --source /path/to/finished-app \
@@ -40,7 +53,7 @@ retro-git generate \
 |------|---------|-------------|
 | `--provider` | `ollama` | `ollama`, `groq`, or `heuristic` |
 | `--history-days` | `14` | Spread commit dates over N days |
-| `--min-commits` / `--max-commits` | `3` / `50` | Plan size bounds |
+| `--min-commits` / `--max-commits` | `3` / `50` | Enforced commit count range |
 | `--dry-run` | off | Print plan only |
 | `--strict` | off | Fail instead of auto fix commit on mismatch |
 | `--force` | off | Clear target directory before run |
@@ -59,7 +72,7 @@ retro-git verify --source ./app --target ./history-repo
 | `OLLAMA_BASE_URL` | Default `http://localhost:11434` |
 | `OLLAMA_MODEL` | Default `llama3.2` |
 | `GROQ_API_KEY` | Groq free tier fallback |
-| `RETRO_GIT_AUTHOR_NAME` / `RETRO_GIT_AUTHOR_EMAIL` | Commit author |
+| `RETRO_GIT_AUTHOR_NAME` / `RETRO_GIT_AUTHOR_EMAIL` | Commit author (defaults to `git config` global name/email) |
 
 ## How it works
 

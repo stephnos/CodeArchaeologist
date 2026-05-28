@@ -14,18 +14,33 @@ from retro_git.config import load_settings
 from retro_git.executor.commit_executor import CommitExecutor
 from retro_git.llm.provider import OllamaProvider, get_provider
 from retro_git.models import DevelopmentPlan
+from retro_git.planner.commit_bounds import enforce_commit_bounds
 from retro_git.planner.plan_normalizer import normalize_plan
+from retro_git.planner.plan_repair import repair_plan
 from retro_git.planner.plan_validator import validate_plan
 from retro_git.scanner.manifest import build_manifest, save_manifest_cache
+from retro_git.github_publish import GitHubPublishError, publish_replacing_old
+from retro_git.layout import apply_relocate, old_workspaces_root, resolve_layout
+from retro_git.undo import UndoError, build_undo_record, save_undo_record, undo_last_run
 from retro_git.verify.fix_commit import verify_and_fix
 from retro_git.verify.tree_comparator import compare_trees
 
 app = typer.Typer(
     name="retro-git",
     help="Generate realistic Git commit history from a finished codebase.",
-    no_args_is_help=True,
+    invoke_without_command=True,
 )
 console = Console()
+
+
+@app.callback()
+def main(ctx: typer.Context) -> None:
+    if ctx.invoked_subcommand is not None:
+        return
+    from retro_git.gui import launch_gui
+
+    launch_gui()
+    raise typer.Exit()
 
 
 class ProviderChoice(str, Enum):
@@ -95,10 +110,23 @@ def _save_plan_cache(target: Path, plan: DevelopmentPlan) -> None:
     )
 
 
+@app.command("gui")
+def gui_cmd() -> None:
+    """Open the graphical form."""
+    from retro_git.gui import launch_gui
+
+    launch_gui()
+
+
 @app.command("generate")
 def generate(
     source: Path = typer.Option(..., "--source", "-s", help="Finished project directory"),
-    target: Path = typer.Option(..., "--target", "-t", help="New git repo output directory"),
+    target: Optional[Path] = typer.Option(
+        None,
+        "--target",
+        "-t",
+        help="Output directory (blank = replace source; backup → .old/<name>.old)",
+    ),
     provider: ProviderChoice = typer.Option(
         ProviderChoice.ollama,
         "--provider",
@@ -125,23 +153,39 @@ def generate(
         "--include-secrets",
         help="Include .env files in manifest",
     ),
+    publish_github: bool = typer.Option(
+        True,
+        "--publish-github/--no-publish-github",
+        help="Rename old repo to <name>.old (private), create <name> (public), and push",
+    ),
+    github_private: bool = typer.Option(
+        False,
+        "--github-private/--github-public",
+        help="Visibility for the new GitHub repo",
+    ),
 ) -> None:
     """Scan source, plan commits, build git history in target."""
-    source = source.resolve()
-    target = target.resolve()
+    layout, layout_err = resolve_layout(str(source), str(target) if target else "")
+    if layout_err or layout is None:
+        raise typer.BadParameter(layout_err or "invalid paths")
 
-    if not source.is_dir():
-        raise typer.BadParameter(f"source not found: {source}")
     if min_commits < 1 or max_commits < min_commits:
         raise typer.BadParameter("invalid --min-commits / --max-commits")
 
-    if not dry_run:
-        _ensure_empty_target(target, force)
+    if layout.relocate_to_old and force:
+        raise typer.BadParameter("--force is not used when target is blank (relocate mode).")
 
-    console.print(f"[bold]Scanning[/bold] {source}")
-    manifest = build_manifest(source, include_secrets=include_secrets)
+    console.print(f"[bold]Scanning[/bold] {layout.scan_root}")
+    manifest = build_manifest(layout.scan_root, include_secrets=include_secrets)
     if not manifest.files:
-        raise typer.BadParameter(f"no files found under {source}")
+        raise typer.BadParameter(f"no files found under {layout.scan_root}")
+
+    staging_source = layout.staging_source
+    target = layout.target
+    backup_path: Path | None = None
+
+    if not dry_run and not layout.relocate_to_old:
+        _ensure_empty_target(target, force)
 
     console.print(
         f"  {len(manifest.files)} files, {manifest.total_bytes:,} bytes"
@@ -167,15 +211,44 @@ def generate(
     try:
         validate_plan(plan, manifest)
     except ValueError as exc:
-        console.print(f"[red]Invalid plan:[/red] {exc}")
-        if not dry_run:
-            cache = target / ".retro-git"
-            cache.mkdir(parents=True, exist_ok=True)
-            (cache / "invalid-plan.json").write_text(
-                plan.model_dump_json(indent=2),
-                encoding="utf-8",
-            )
-        raise typer.Exit(code=1) from exc
+        console.print(f"[yellow]Invalid plan from provider:[/yellow] {exc}")
+        console.print("[dim]Attempting automatic plan repair...[/dim]")
+        repaired = normalize_plan(repair_plan(plan, manifest))
+        try:
+            validate_plan(repaired, manifest)
+            plan = repaired
+            console.print("[green]Plan repaired successfully.[/green]")
+            if not dry_run:
+                cache = target / ".retro-git"
+                cache.mkdir(parents=True, exist_ok=True)
+                (cache / "repaired-plan.json").write_text(
+                    plan.model_dump_json(indent=2),
+                    encoding="utf-8",
+                )
+        except ValueError as repair_exc:
+            console.print(f"[red]Invalid plan after repair:[/red] {repair_exc}")
+            if not dry_run:
+                cache = target / ".retro-git"
+                cache.mkdir(parents=True, exist_ok=True)
+                (cache / "invalid-plan.json").write_text(
+                    plan.model_dump_json(indent=2),
+                    encoding="utf-8",
+                )
+            raise typer.Exit(code=1) from repair_exc
+
+    adjusted = enforce_commit_bounds(
+        plan,
+        min_commits=min_commits,
+        max_commits=max_commits,
+        file_count=len(manifest.files),
+    )
+    if len(adjusted.commits) != len(plan.commits):
+        console.print(
+            f"[dim]Adjusted plan to {len(adjusted.commits)} commits "
+            f"(requested {min_commits}-{max_commits}).[/dim]"
+        )
+    plan = adjusted
+    validate_plan(plan, manifest)
 
     _print_plan_table(plan)
 
@@ -183,17 +256,25 @@ def generate(
         console.print("\n[green]Dry run complete[/green] (no commits written).")
         raise typer.Exit()
 
+    if layout.relocate_to_old:
+        console.print(
+            f"[dim]Moving {layout.scan_root.name} → {layout.backup_path.name}[/dim]"
+        )
+        staging_source = apply_relocate(layout)
+        backup_path = staging_source
+        target = layout.target
+
     save_manifest_cache(target, manifest)
     _save_plan_cache(target, plan)
 
-    executor = CommitExecutor(source, target, manifest)
+    executor = CommitExecutor(staging_source, target, manifest)
     console.print(f"\n[bold]Executing[/bold] {len(plan.commits)} commits...")
     results = executor.run_plan(plan.commits, history_days=history_days)
     for step, sha in results:
         console.print(f"  [cyan]{step.order:02d}[/cyan] {sha[:7]}  {step.message}")
 
     console.print("\n[bold]Verifying[/bold] tree against source...")
-    diff, fix_sha = verify_and_fix(source, target, executor, strict=strict)
+    diff, fix_sha = verify_and_fix(staging_source, target, executor, strict=strict)
 
     if diff.ok:
         console.print("[green]Verification passed[/green] — target matches source.")
@@ -203,10 +284,10 @@ def generate(
         raise typer.Exit(code=1)
     elif fix_sha:
         console.print(f"[yellow]Fix commit[/yellow] {fix_sha[:7]}  chore: sync...")
-        if compare_trees(source, target).ok:
+        if compare_trees(staging_source, target).ok:
             console.print("[green]Verification passed after fix commit.[/green]")
         else:
-            _print_diff(compare_trees(source, target))
+            _print_diff(compare_trees(staging_source, target))
             console.print("[red]Still mismatched after fix commit.[/red]")
             raise typer.Exit(code=1)
     else:
@@ -214,6 +295,35 @@ def generate(
         raise typer.Exit(code=1)
 
     console.print(f"\n[bold]Done.[/bold] Repository: {target}")
+    if backup_path:
+        console.print(f"[dim]Original project backup:[/dim] {backup_path}")
+
+    published = False
+    if publish_github and not dry_run:
+        console.print("\n[bold]Publishing to GitHub…[/bold]")
+        try:
+            url = publish_replacing_old(
+                target,
+                backup_path,
+                private=github_private,
+            )
+            console.print(f"[bold]GitHub:[/bold] {url}")
+            published = True
+        except GitHubPublishError as exc:
+            console.print(f"[red]GitHub publish failed:[/red] {exc}")
+            raise typer.Exit(code=1) from exc
+
+    if not dry_run:
+        save_undo_record(
+            build_undo_record(
+                layout_target=target,
+                backup_path=backup_path,
+                relocated=layout.relocate_to_old,
+                publish_github=published,
+                backup_for_github=backup_path,
+            )
+        )
+        console.print("[dim]Undo snapshot saved (retro-git undo).[/dim]")
 
 
 def _print_diff(diff) -> None:
@@ -229,6 +339,52 @@ def _print_diff(diff) -> None:
         console.print(f"  extra: {len(diff.extra_in_target)}")
         for p in diff.extra_in_target[:10]:
             console.print(f"    + {p}")
+
+
+@app.command("undo")
+def undo_cmd(
+    undo_github: bool = typer.Option(
+        True,
+        "--github/--no-github",
+        help="Also revert GitHub (delete new repo, restore .old name)",
+    ),
+) -> None:
+    """Undo the last generate run (restore <name>.old, revert GitHub)."""
+    try:
+        summary = undo_last_run(undo_github=undo_github)
+        console.print(f"[green]Undo complete.[/green]\n{summary}")
+    except UndoError as exc:
+        console.print(f"[red]Undo failed:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+
+@app.command("publish-github")
+def publish_github_cmd(
+    target: Path = typer.Argument(
+        ...,
+        help="Local folder with generated git history to push",
+    ),
+    backup: Optional[Path] = typer.Option(
+        None,
+        "--backup",
+        help="Path to <name>.old backup (for detecting GitHub owner/repo)",
+    ),
+    github_private: bool = typer.Option(
+        False,
+        "--github-private/--github-public",
+    ),
+) -> None:
+    """Create GitHub repo (renaming any existing one to .old) and push target."""
+    target = target.resolve()
+    backup = backup.resolve() if backup else (old_workspaces_root() / f"{target.name}.old")
+    if not backup.is_dir():
+        backup = None
+    try:
+        url = publish_replacing_old(target, backup, private=github_private)
+        console.print(f"[bold]GitHub:[/bold] {url}")
+    except GitHubPublishError as exc:
+        console.print(f"[red]GitHub publish failed:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
 
 
 @app.command("verify")
