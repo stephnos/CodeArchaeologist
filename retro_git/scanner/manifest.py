@@ -4,16 +4,23 @@ import json
 from pathlib import Path
 
 from retro_git.models import Manifest
-from retro_git.scanner.codebase_scanner import detect_stack_hints, scan_codebase
+from retro_git.scanner.codebase_scanner import detect_stack_hints
+from retro_git.scanner.file_collection import collect_project_paths, paths_to_entries
 
 
 def build_manifest(
     source: Path,
     *,
     include_secrets: bool = False,
+    include_untracked: bool = False,
 ) -> Manifest:
     source = source.resolve()
-    files = scan_codebase(source, include_secrets=include_secrets)
+    paths = collect_project_paths(
+        source,
+        include_secrets=include_secrets,
+        include_untracked=include_untracked,
+    )
+    files = paths_to_entries(source, paths)
     stack_hints = detect_stack_hints(source, files)
     total = sum(f.size_bytes for f in files)
     return Manifest(

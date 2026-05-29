@@ -18,6 +18,7 @@ from retro_git.planner.commit_bounds import enforce_commit_bounds
 from retro_git.planner.plan_normalizer import normalize_plan
 from retro_git.planner.plan_repair import repair_plan
 from retro_git.planner.plan_validator import validate_plan
+from retro_git.scanner.file_collection import is_git_repository
 from retro_git.scanner.manifest import build_manifest, save_manifest_cache
 from retro_git.github_publish import GitHubPublishError, publish_replacing_old
 from retro_git.layout import apply_relocate, old_workspaces_root, resolve_layout
@@ -153,6 +154,11 @@ def generate(
         "--include-secrets",
         help="Include .env files in manifest",
     ),
+    include_untracked: bool = typer.Option(
+        False,
+        "--include-untracked",
+        help="Include untracked files (git repos default to tracked files only)",
+    ),
     publish_github: bool = typer.Option(
         True,
         "--publish-github/--no-publish-github",
@@ -176,7 +182,13 @@ def generate(
         raise typer.BadParameter("--force is not used when target is blank (relocate mode).")
 
     console.print(f"[bold]Scanning[/bold] {layout.scan_root}")
-    manifest = build_manifest(layout.scan_root, include_secrets=include_secrets)
+    if is_git_repository(layout.scan_root) and not include_untracked:
+        console.print("  [dim]Git repo: using tracked files only (ignores local build artifacts)[/dim]")
+    manifest = build_manifest(
+        layout.scan_root,
+        include_secrets=include_secrets,
+        include_untracked=include_untracked,
+    )
     if not manifest.files:
         raise typer.BadParameter(f"no files found under {layout.scan_root}")
 
@@ -204,8 +216,16 @@ def generate(
             max_commits=max_commits,
         )
     except Exception as exc:
-        console.print(f"[red]Planning failed:[/red] {exc}")
-        raise typer.Exit(code=1) from exc
+        if resolved == ProviderChoice.heuristic:
+            console.print(f"[red]Planning failed:[/red] {exc}")
+            raise typer.Exit(code=1) from exc
+        console.print(f"[yellow]Planning failed ({exc})[/yellow]")
+        console.print("[dim]Falling back to heuristic planner…[/dim]")
+        plan = get_provider("heuristic").generate_plan(
+            manifest,
+            min_commits=min_commits,
+            max_commits=max_commits,
+        )
 
     plan = normalize_plan(plan)
     try:
@@ -274,7 +294,15 @@ def generate(
         console.print(f"  [cyan]{step.order:02d}[/cyan] {sha[:7]}  {step.message}")
 
     console.print("\n[bold]Verifying[/bold] tree against source...")
-    diff, fix_sha = verify_and_fix(staging_source, target, executor, strict=strict)
+    diff, fix_sha = verify_and_fix(
+        staging_source,
+        target,
+        executor,
+        manifest,
+        strict=strict,
+        include_secrets=include_secrets,
+        include_untracked=include_untracked,
+    )
 
     if diff.ok:
         console.print("[green]Verification passed[/green] — target matches source.")
@@ -284,10 +312,17 @@ def generate(
         raise typer.Exit(code=1)
     elif fix_sha:
         console.print(f"[yellow]Fix commit[/yellow] {fix_sha[:7]}  chore: sync...")
-        if compare_trees(staging_source, target).ok:
+        after = compare_trees(
+            staging_source,
+            target,
+            paths=manifest.paths(),
+            include_secrets=include_secrets,
+            include_untracked=include_untracked,
+        )
+        if after.ok:
             console.print("[green]Verification passed after fix commit.[/green]")
         else:
-            _print_diff(compare_trees(staging_source, target))
+            _print_diff(after)
             console.print("[red]Still mismatched after fix commit.[/red]")
             raise typer.Exit(code=1)
     else:

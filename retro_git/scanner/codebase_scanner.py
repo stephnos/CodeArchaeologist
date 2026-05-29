@@ -29,26 +29,10 @@ def scan_codebase(
     *,
     include_secrets: bool = False,
 ) -> list[FileEntry]:
-    root = root.resolve()
-    if not root.is_dir():
-        raise ValueError(f"source is not a directory: {root}")
+    """Full filesystem scan with built-in ignore rules (non-git projects)."""
+    from retro_git.scanner.file_collection import scan_filesystem
 
-    entries: list[FileEntry] = []
-    for path in sorted(root.rglob("*")):
-        if not path.is_file():
-            continue
-        relative = path.relative_to(root)
-        if _should_ignore(relative, include_secrets):
-            continue
-        stat = path.stat()
-        entries.append(
-            FileEntry(
-                path=relative.as_posix(),
-                size_bytes=stat.st_size,
-                extension=path.suffix.lower(),
-            )
-        )
-    return entries
+    return scan_filesystem(root, include_secrets=include_secrets)
 
 
 def detect_stack_hints(root: Path, files: list[FileEntry]) -> list[str]:

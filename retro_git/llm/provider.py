@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import json
 from abc import ABC, abstractmethod
 from typing import Literal
 
 import httpx
-from pydantic import ValidationError
 
 from retro_git.config import Settings, load_settings
-from retro_git.llm.prompts import SYSTEM_PROMPT, build_user_prompt, extract_json_object
+from retro_git.llm.plan_parse import parse_plan_json
+from retro_git.llm.prompts import SYSTEM_PROMPT, build_user_prompt
 from retro_git.models import DevelopmentPlan, Manifest
 from retro_git.scanner.manifest import manifest_for_llm, manifest_to_tree_text
 
@@ -59,12 +58,21 @@ class OllamaProvider(LLMProvider):
             "stream": False,
             "format": "json",
         }
-        with httpx.Client(timeout=600.0) as client:
-            response = client.post(url, json=payload)
-            response.raise_for_status()
-            data = response.json()
-        content = data.get("message", {}).get("content", "")
-        return _parse_plan(content)
+        last_error: ValueError | None = None
+        for attempt in range(2):
+            with httpx.Client(timeout=600.0) as client:
+                response = client.post(url, json=payload)
+                response.raise_for_status()
+                data = response.json()
+            content = data.get("message", {}).get("content", "")
+            try:
+                return parse_plan_json(content)
+            except ValueError as exc:
+                last_error = exc
+                if attempt == 0:
+                    continue
+        assert last_error is not None
+        raise last_error
 
     def check_available(self) -> bool:
         try:
@@ -117,7 +125,7 @@ class GroqProvider(LLMProvider):
             response_format={"type": "json_object"},
         )
         content = completion.choices[0].message.content or ""
-        return _parse_plan(content)
+        return parse_plan_json(content)
 
 
 def get_provider(name: ProviderName, settings: Settings | None = None) -> LLMProvider:
@@ -145,10 +153,3 @@ def _suggested_commit_count(file_count: int, min_commits: int, max_commits: int)
     return max(min_commits, min(max_commits, raw))
 
 
-def _parse_plan(content: str) -> DevelopmentPlan:
-    raw = extract_json_object(content)
-    try:
-        data = json.loads(raw)
-        return DevelopmentPlan.model_validate(data)
-    except (json.JSONDecodeError, ValidationError) as exc:
-        raise ValueError(f"invalid plan JSON from LLM: {exc}") from exc

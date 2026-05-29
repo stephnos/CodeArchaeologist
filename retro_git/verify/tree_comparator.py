@@ -4,7 +4,7 @@ import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from retro_git.config import DEFAULT_IGNORE_FILES
+from retro_git.scanner.file_collection import collect_project_paths
 
 
 @dataclass
@@ -29,34 +29,32 @@ def _file_hash(path: Path) -> str:
     return h.hexdigest()
 
 
-def _should_skip(relative: Path) -> bool:
-    if relative.name in DEFAULT_IGNORE_FILES:
-        return True
-    if ".git" in relative.parts:
-        return True
-    if ".retro-git" in relative.parts:
-        return True
-    return False
-
-
-def _collect_hashes(root: Path) -> dict[str, str]:
+def _collect_hashes(root: Path, paths: list[str]) -> dict[str, str]:
     root = root.resolve()
     out: dict[str, str] = {}
-    if not root.is_dir():
-        return out
-    for path in root.rglob("*"):
-        if not path.is_file():
-            continue
-        rel = path.relative_to(root)
-        if _should_skip(rel):
-            continue
-        out[rel.as_posix()] = _file_hash(path)
+    for rel_str in paths:
+        path = root / rel_str
+        if path.is_file():
+            out[rel_str] = _file_hash(path)
     return out
 
 
-def compare_trees(source: Path, target: Path) -> TreeDiff:
-    source_map = _collect_hashes(source)
-    target_map = _collect_hashes(target)
+def compare_trees(
+    source: Path,
+    target: Path,
+    *,
+    paths: list[str] | None = None,
+    include_secrets: bool = False,
+    include_untracked: bool = False,
+) -> TreeDiff:
+    if paths is None:
+        paths = collect_project_paths(
+            source,
+            include_secrets=include_secrets,
+            include_untracked=include_untracked,
+        )
+    source_map = _collect_hashes(source, paths)
+    target_map = _collect_hashes(target, paths)
 
     diff = TreeDiff()
     source_keys = set(source_map)

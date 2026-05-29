@@ -58,6 +58,7 @@ retro-git generate \
 | `--strict` | off | Fail instead of auto fix commit on mismatch |
 | `--force` | off | Clear target directory before run |
 | `--include-secrets` | off | Include `.env` in manifest |
+| `--include-untracked` | off | Also include untracked files (git repos default to **tracked only**) |
 
 ### Verify only
 
