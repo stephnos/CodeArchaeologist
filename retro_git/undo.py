@@ -34,6 +34,7 @@ class UndoRecord:
     published_github: bool
     github_owner: str | None
     github_repo: str | None
+    github_url: str | None = None
 
     @property
     def project(self) -> Path:
@@ -134,6 +135,7 @@ def build_undo_record(
     relocated: bool,
     publish_github: bool,
     backup_for_github: Path | None,
+    github_url: str | None = None,
 ) -> UndoRecord:
     owner: str | None = None
     repo: str | None = layout_target.name
@@ -158,4 +160,5 @@ def build_undo_record(
         published_github=publish_github,
         github_owner=owner,
         github_repo=repo if publish_github else None,
+        github_url=github_url if publish_github else None,
     )

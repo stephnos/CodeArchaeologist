@@ -11,10 +11,13 @@ from rich.console import Console
 from rich.table import Table
 
 from retro_git.config import load_settings
+from retro_git.executor.build_executor import BuildExecutor
 from retro_git.executor.commit_executor import CommitExecutor
 from retro_git.llm.provider import OllamaProvider, get_provider
-from retro_git.models import DevelopmentPlan
+from retro_git.models import BuildPlan, DevelopmentPlan
+from retro_git.planner.build_validator import validate_build_plan
 from retro_git.planner.commit_bounds import enforce_commit_bounds
+from retro_git.planner.evolution import build_evolution_plan
 from retro_git.planner.plan_normalizer import normalize_plan
 from retro_git.planner.plan_repair import repair_plan
 from retro_git.planner.plan_validator import validate_plan
@@ -111,6 +114,15 @@ def _save_plan_cache(target: Path, plan: DevelopmentPlan) -> None:
     )
 
 
+def _save_build_plan_cache(target: Path, plan: BuildPlan) -> None:
+    cache = target / ".retro-git"
+    cache.mkdir(parents=True, exist_ok=True)
+    (cache / "build-plan.json").write_text(
+        plan.model_dump_json(indent=2),
+        encoding="utf-8",
+    )
+
+
 @app.command("gui")
 def gui_cmd() -> None:
     """Open the graphical form."""
@@ -158,6 +170,11 @@ def generate(
         False,
         "--include-untracked",
         help="Include untracked files (git repos default to tracked files only)",
+    ),
+    diffs: bool = typer.Option(
+        False,
+        "--diffs/--no-diffs",
+        help="v2: build files incrementally across commits for realistic line diffs",
     ),
     publish_github: bool = typer.Option(
         True,
@@ -288,10 +305,34 @@ def generate(
     _save_plan_cache(target, plan)
 
     executor = CommitExecutor(staging_source, target, manifest)
-    console.print(f"\n[bold]Executing[/bold] {len(plan.commits)} commits...")
-    results = executor.run_plan(plan.commits, history_days=history_days)
-    for step, sha in results:
-        console.print(f"  [cyan]{step.order:02d}[/cyan] {sha[:7]}  {step.message}")
+
+    if diffs:
+        build_plan = build_evolution_plan(plan, manifest, staging_source)
+        try:
+            validate_build_plan(build_plan, manifest, staging_source)
+        except ValueError as exc:
+            console.print(f"[red]Build plan invalid:[/red] {exc}")
+            raise typer.Exit(code=1) from exc
+        _save_build_plan_cache(target, build_plan)
+        build_executor = BuildExecutor(staging_source, target)
+        console.print(
+            f"\n[bold]Executing[/bold] {len(build_plan.steps)} commits "
+            f"[dim](v2 incremental diffs)[/dim]..."
+        )
+        build_results = build_executor.run_plan(
+            build_plan.steps, history_days=history_days
+        )
+        for step, sha in build_results:
+            files = ", ".join(sorted({e.path for e in step.edits}))
+            console.print(
+                f"  [cyan]{step.order:02d}[/cyan] {sha[:7]}  {step.message} "
+                f"[dim]({files})[/dim]"
+            )
+    else:
+        console.print(f"\n[bold]Executing[/bold] {len(plan.commits)} commits...")
+        results = executor.run_plan(plan.commits, history_days=history_days)
+        for step, sha in results:
+            console.print(f"  [cyan]{step.order:02d}[/cyan] {sha[:7]}  {step.message}")
 
     console.print("\n[bold]Verifying[/bold] tree against source...")
     diff, fix_sha = verify_and_fix(
@@ -334,15 +375,16 @@ def generate(
         console.print(f"[dim]Original project backup:[/dim] {backup_path}")
 
     published = False
+    github_url: str | None = None
     if publish_github and not dry_run:
         console.print("\n[bold]Publishing to GitHub…[/bold]")
         try:
-            url = publish_replacing_old(
+            github_url = publish_replacing_old(
                 target,
                 backup_path,
                 private=github_private,
             )
-            console.print(f"[bold]GitHub:[/bold] {url}")
+            console.print(f"[bold]GitHub:[/bold] {github_url}")
             published = True
         except GitHubPublishError as exc:
             console.print(f"[red]GitHub publish failed:[/red] {exc}")
@@ -356,6 +398,7 @@ def generate(
                 relocated=layout.relocate_to_old,
                 publish_github=published,
                 backup_for_github=backup_path,
+                github_url=github_url,
             )
         )
         console.print("[dim]Undo snapshot saved (retro-git undo).[/dim]")

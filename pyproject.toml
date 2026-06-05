@@ -27,5 +27,8 @@ retro-git = "retro_git.cli:app"
 [tool.hatch.build.targets.wheel]
 packages = ["retro_git"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"retro_git/static" = "retro_git/static"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

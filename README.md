@@ -59,6 +59,7 @@ retro-git generate \
 | `--force` | off | Clear target directory before run |
 | `--include-secrets` | off | Include `.env` in manifest |
 | `--include-untracked` | off | Also include untracked files (git repos default to **tracked only**) |
+| `--diffs` | off | **v2**: build files incrementally across commits for realistic line-level diffs |
 
 ### Verify only
 
@@ -82,7 +83,19 @@ retro-git verify --source ./app --target ./history-repo
 3. **Execute** — Copy files step-by-step; `git add` + `git commit` with backdated timestamps.
 4. **Verify** — SHA-256 tree compare; optional `chore: sync generated history with source tree` commit.
 
-v1 uses **whole files per commit**; partial hunks are planned for a later release.
+### Modes
+
+- **v1 (default)** — whole files per commit.
+- **v2 (`--diffs`)** — files grow **incrementally across commits** using real source
+  lines split at function/class boundaries (not placeholder TODOs). Early commits
+  contain imports and the first functions; later commits add more real code with
+  messages like `feat(module): add func_3, func_4`. Fragments partition the source
+  file exactly, so the final tree still matches byte-for-byte. Binary and short files
+  stay atomic.
+
+```bash
+retro-git generate --source ./app --target ./history-repo --diffs
+```
 
 ## Project layout
 
